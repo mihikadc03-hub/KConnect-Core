@@ -1,0 +1,55 @@
+#!/usr/bin/env bpftrace
+
+BEGIN
+{
+    printf("# Tracing connection events... Press Ctrl+C to exit.\n");
+}
+
+/* Record the real PID and Process Name during SYN_SENT */
+tracepoint:sock:inet_sock_set_state
+/args->newstate == 2/
+{
+    @pids[args->skaddr] = pid;
+    @comms[args->skaddr] = comm;
+}
+
+/* Trace fully established IPv4 TCP connections */
+tracepoint:sock:inet_sock_set_state
+/args->oldstate == 2 && args->newstate == 1 && args->family == 2/
+{
+    $saved_pid = @pids[args->skaddr];
+    $saved_comm = @comms[args->skaddr];
+
+    if ($saved_pid != 0) {
+        printf("%d|%s|TCP|%s|%d|%d\n", $saved_pid, $saved_comm, ntop(args->daddr), args->dport, args->sport);
+    } else {
+        printf("%d|%s|TCP|%s|%d|%d\n", pid, comm, ntop(args->daddr), args->dport, args->sport);
+    }
+
+    delete(@pids[args->skaddr]);
+    delete(@comms[args->skaddr]);
+}
+
+/* Trace fully established IPv6 TCP connections */
+tracepoint:sock:inet_sock_set_state
+/args->oldstate == 2 && args->newstate == 1 && args->family == 10/
+{
+    $saved_pid = @pids[args->skaddr];
+    $saved_comm = @comms[args->skaddr];
+
+    if ($saved_pid != 0) {
+        printf("%d|%s|TCP|%s|%d|%d\n", $saved_pid, $saved_comm, ntop(args->daddr_v6), args->dport, args->sport);
+    } else {
+        printf("%d|%s|TCP|%s|%d|%d\n", pid, comm, ntop(args->daddr_v6), args->dport, args->sport);
+    }
+
+    delete(@pids[args->skaddr]);
+    delete(@comms[args->skaddr]);
+}
+
+END
+{
+    clear(@pids);
+    clear(@comms);
+}
+
